@@ -42,8 +42,7 @@ app = FastAPI(
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
-        os.getenv("MAIN_BACKEND_URL", "http://localhost:3001"),
-        "http://localhost:8000",  # Your main backend
+        os.getenv("MAIN_BACKEND_URL"),
     ],
     allow_credentials=True,
     allow_methods=["POST"],
