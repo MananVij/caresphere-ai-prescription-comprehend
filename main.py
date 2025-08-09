@@ -7,7 +7,7 @@ import logging
 from contextlib import asynccontextmanager
 
 from services.comprehend_service import ComprehendService
-from models.dto import ComprehendRequest, ComprehendResponse
+from models.dto import ComprehendRequest, ComprehendResponse, BillRequest, BillResponse
 from services.firebase_service import FirebaseService
 from services.validation_service import ValidationService
 
@@ -33,7 +33,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="Comprehend AI Processing Service",
-    description="Internal FastAPI service for AI-powered prescription processing",
+    description="Internal FastAPI service for AI-powered prescription and bill processing",
     version="1.0.0",
     lifespan=lifespan
 )
@@ -60,14 +60,33 @@ async def process_prescription(request: ComprehendRequest):
         # Process the prescription with AI
         result = await comprehend_service.process_prescription_ai(request)
         
-        logger.info(f"AI processing completed. Success: {result.success}")
+        logger.info(f"Prescription AI processing completed. Success: {result.success}")
         return result
         
     except Exception as e:
-        logger.error(f"Error in AI processing: {str(e)}")
+        logger.error(f"Error in prescription AI processing: {str(e)}")
         raise HTTPException(
             status_code=500,
-            detail=f"AI processing failed: {str(e)}"
+            detail=f"Prescription AI processing failed: {str(e)}"
+        )
+
+@app.post("/api/process-bill", response_model=BillResponse)
+async def process_bill(request: BillRequest):
+    """
+    Internal API endpoint for bill AI processing only
+    Called by main NestJS backend, not directly by frontend
+    """
+    try:
+        result = await comprehend_service.process_bill_ai(request)
+        
+        logger.info(f"Bill AI processing completed. Success: {result.success}")
+        return result
+        
+    except Exception as e:
+        logger.error(f"Error in AI Bill processing: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"AI Bill processing failed: {str(e)}"
         )
 
 if __name__ == "__main__":

@@ -22,10 +22,8 @@ class FirebaseService:
             if not firebase_admin._apps:
                 # Try to load service account key
                 service_account_path = os.path.join(os.getcwd(), "serviceAccountKey.json")
-                print("Manan Vwjhdjkwed", service_account_path)
                 
                 if os.path.exists(service_account_path):
-                    print("ewdhkjbewkdjwbendkjewbdwekdbewkj")
                     cred = credentials.Certificate(service_account_path)
                 else:
                     # Try environment variable for service account JSON

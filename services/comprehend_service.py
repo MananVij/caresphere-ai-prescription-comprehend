@@ -6,7 +6,7 @@ import logging
 from typing import Optional
 
 import google.generativeai as genai
-from models.dto import ComprehendRequest, ComprehendResponse, AIProcessingResult, ErrorDetails
+from models.dto import ComprehendRequest, ComprehendResponse, AIProcessingResult, ErrorDetails, BillRequest, BillResponse
 from services.firebase_service import FirebaseService
 from services.validation_service import ValidationService
 
@@ -19,47 +19,22 @@ class ComprehendService:
         
         # Initialize Gemini AI
         api_key = os.getenv("GEMINI_GEN_AI_API_KEY")
-        if not api_key:
-            raise ValueError("GEMINI_GEN_AI_API_KEY is not configured")
+        bill_model = os.getenv("GEMINI_BILL_MODEL")
+        prescription_model = os.getenv("GEMINI_PRESCRIPTION_MODEL")
+        bill_prompt = os.getenv("GEMINI_BILL_PROMPT")
+        prescription_prompt = os.getenv("GEMINI_PRESCRIPTION_PROMPT")
+        
+        if not api_key or not bill_model or not prescription_model or not bill_prompt or not prescription_prompt:
+            raise ValueError("Environment variables not configured")
         
         genai.configure(api_key=api_key)
-        self.model_name = os.getenv("GEMINI_MODEL", "gemini-2.0-flash-exp")
-        self.prompt = os.getenv("GEMINI_PROMPT", self._get_default_prompt())
         
-        logger.info(f"Initialized ComprehendService with model: {self.model_name}")
-    
-    def _get_default_prompt(self) -> str:
-        return '''Convert unstructured medical data to JSON: {
-            "diagnosis": "string", 
-            "history": "string", 
-            "name": "string", 
-            "age": "int", 
-            "sex": "string", 
-            "medication": [{
-                "medicine_name": "string", 
-                "dosage": "string", 
-                "days": "int", 
-                "tapering": [{
-                    "frequency": "string (must be one of: od, bid, tid, qid, hs, ac, pc, qam, qpm, bs, q6h, q8h, q12h, qod, q1w, q2w, q3w, q1m)", 
-                    "days": "int", 
-                    "comments": "string"
-                }], 
-                "is_sos": "bool", 
-                "food": {
-                    "before_breakfast": "bool", 
-                    "after_breakfast": "bool", 
-                    "lunch": "bool", 
-                    "dinner": "bool"
-                }, 
-                "frequency": {
-                    "od": "bool", "bid": "bool", "tid": "bool", "qid": "bool", "hs": "bool", "ac": "bool", "pc": "bool", "qam": "bool", "qpm": "bool", "bs": "bool", "q6h": "bool", "q8h": "bool", "q12h": "bool", "qod": "bool", "q1w": "bool", "q2w": "bool", "q3w": "bool", "q1m": "bool"
-                }
-            }], 
-            "test_suggested": "string", 
-            "test_results": "string", 
-            "medical_notes": "string", 
-            "followUp": "string (ISO format: YYYY-MM-DD) or null if missing"
-        }. Return an empty string ("") for "tapering.frequency" if missing or unclear, and null for "tapering" if not mentioned. Return an empty string ("") for unhandled or missing data. Extract medicine name and dosage separately: do not include dosage in the medicine name. Include dosage units if provided, retain prefixes (e.g., tab, syrup) in medicine names and add them to the medicine name in response, and handle abbreviations (od, bid, etc.) in frequency and add them in the frequency object instead of mapping them to meal timings.'''
+        self.prescription_model = prescription_model
+        self.bill_model = bill_model
+        self.prescription_prompt = prescription_prompt
+        self.bill_prompt = bill_prompt
+        
+        logger.info(f"Initialized ComprehendService with prescription model: {self.prescription_model}, bill model: {self.bill_model}")
 
     async def process_prescription_ai(self, request: ComprehendRequest) -> ComprehendResponse:
         """
@@ -121,7 +96,7 @@ class ComprehendService:
             
             # Process with Gemini AI
             model = genai.GenerativeModel(
-                model_name=self.model_name,
+                model_name=self.prescription_model,
                 generation_config={
                     "max_output_tokens": 8192,
                     "temperature": 0,
@@ -136,7 +111,7 @@ class ComprehendService:
             }
             
             # Generate content
-            response = await self._generate_content_async(model, file_data, self.prompt)
+            response = await self._generate_content_async(model, file_data, self.prescription_prompt)
             
             # Parse JSON response
             json_string = response.replace('```json', '').replace('```', '').strip()
@@ -173,6 +148,71 @@ class ComprehendService:
                         "file_name": request.file.originalname,
                         "mimetype": request.file.mimetype,
                         "file_url": file_url
+                    }
+                )
+            )
+
+    async def process_bill_ai(self, request: BillRequest) -> BillResponse:
+        """
+        AI processing for supplier medicine bills - no database operations
+        Main NestJS backend handles DB save and error logging
+        """
+        try:
+            # Process file data
+            if isinstance(request.file, bytes):
+                file_content = request.file
+                base64_data = base64.b64encode(file_content).decode('utf-8')
+            else:
+                base64_data = request.file
+                file_content = base64.b64decode(base64_data)
+
+            if not request.mimetype.startswith('image/'):
+                raise ValueError("Unsupported file type for supplier bill processing")
+            
+            # Process with Gemini AI
+            model = genai.GenerativeModel(
+                model_name=self.bill_model,
+                generation_config={
+                    "max_output_tokens": 8192,
+                    "temperature": 0,
+                    "top_p": 0.95
+                }
+            )
+            
+            # Prepare file data for Gemini
+            file_data = {
+                "mime_type": request.mimetype,
+                "data": base64_data
+            }
+            
+            # Generate content
+            response = await self._generate_content_async(model, file_data, self.bill_prompt)
+            
+            # Parse JSON response
+            json_string = response.replace('```json', '').replace('```', '').strip()
+            parsed_json = json.loads(json_string)
+            
+            # Validate supplier bill data
+            validated_data = self.validation_service.validate_supplier_bill_data(parsed_json)
+            
+            # Return AI processing result (no DB operations, no file upload)
+            return BillResponse(
+                success=True,
+                bill_result=validated_data
+            )
+            
+        except Exception as e:
+            logger.error(f"Error in supplier bill AI processing: {str(e)}")
+            return BillResponse(
+                success=False,
+                error=ErrorDetails(
+                    message=str(e),
+                    type=type(e).__name__,
+                    context={
+                        "doctor_id": request.doctor_id,
+                        "clinic_id": request.clinic_id,
+                        "file_name": "supplier_bill.jpg",
+                        "mimetype": request.mimetype,
                     }
                 )
             )

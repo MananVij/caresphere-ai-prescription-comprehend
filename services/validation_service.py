@@ -1,6 +1,6 @@
 import logging
 from typing import Dict, Any, List
-from models.dto import MedicationDto, FoodDto, FrequencyDto, TaperingDto
+from models.dto import MedicationDto, FoodDto, FrequencyDto, TaperingDto, SupplierDto, BuyFromSupplierMedicineDto, SupplierBillDto
 
 logger = logging.getLogger(__name__)
 
@@ -57,6 +57,50 @@ class ValidationService:
             "frequency": "",
             "days": 0,
             "comments": ""
+        }
+
+        # Default supplier bill structure
+        self.default_supplier_bill = {
+            "supplier": {
+                "name": "",
+                "gst_number": "",
+                "address_line1": "",
+                "address_line2": "",
+                "city": "",
+                "state": "",
+                "contact_person_name": "",
+                "phone": "",
+                "email": ""
+            },
+            "bill_number": "",
+            "medicines": []
+        }
+
+        # Default supplier medicine structure
+        self.default_supplier_medicine = {
+            "medicine_name": "",
+            "dosage": "",
+            "quantity": 0,
+            "mrp": 0.0,
+            "buying_price": 0.0,
+            "selling_price": 0.0,
+            "expiry_date": "",
+            "batch_number": ""
+        }
+
+        self.default_supplier = {
+            "name": "",
+            "gst_number": "",
+            "address_line1": "",
+            "address_line2": "",
+            "city": "",
+            "state": "",
+            # Clinic contact info
+            "phone": "",
+            "email": "",
+            # Contact person info
+            "contact_person_name": "",
+            "contact_person_phone": ""
         }
     
     def validate_prescription_data(self, data: Dict[str, Any]) -> Dict[str, Any]:
@@ -137,7 +181,96 @@ class ValidationService:
         except Exception as e:
             logger.error(f"Error validating medication: {str(e)}")
             return self.default_medication.copy()
+
+    def validate_supplier_bill_data(self, data: Dict[str, Any]) -> SupplierBillDto:
+        """Validate and apply defaults to supplier bill data"""
+        try:
+            # Apply supplier bill-level defaults
+            validated_data = {**self.default_supplier_bill, **data}
+            
+            # Validate supplier data
+            supplier_data = data.get("supplier", {})
+            validated_data["supplier"] = self._validate_supplier(supplier_data)
+            
+            # Validate and process medicines array
+            medicines = data.get("medicines", [])
+            validated_medicines = []
+            
+            for med in medicines:
+                validated_med = self._validate_supplier_medicine(med)
+                validated_medicines.append(validated_med)
+            
+            validated_data["medicines"] = validated_medicines
+            
+            # Ensure required string fields are strings
+            validated_data["bill_number"] = str(validated_data["bill_number"]) if validated_data["bill_number"] else ""
+            
+            # Create and return the DTO
+            return self.create_supplier_bill_dto(validated_data)
+            
+        except Exception as e:
+            logger.error(f"Error validating supplier bill data: {str(e)}")
+            # Return default data structure if validation fails
+            return self.create_supplier_bill_dto(self.default_supplier_bill.copy())
     
+    def _validate_supplier_medicine(self, med_data: Dict[str, Any]) -> Dict[str, Any]:
+        """Validate individual supplier medicine data"""
+        try:
+            # Apply medicine defaults
+            validated_med = {**self.default_supplier_medicine, **med_data}
+            
+            # Ensure required fields are correct types
+            validated_med["medicine_name"] = str(validated_med["medicine_name"]) if validated_med["medicine_name"] else ""
+            validated_med["dosage"] = str(validated_med["dosage"]) if validated_med["dosage"] else ""
+            validated_med["expiry_date"] = str(validated_med["expiry_date"]) if validated_med["expiry_date"] else ""
+            
+            try:
+                validated_med["quantity"] = int(validated_med["quantity"]) if validated_med["quantity"] else 0
+            except (ValueError, TypeError):
+                validated_med["quantity"] = 0
+            
+            try:
+                validated_med["mrp"] = float(validated_med["mrp"]) if validated_med["mrp"] else 0.0
+            except (ValueError, TypeError):
+                validated_med["mrp"] = 0.0
+            
+            try:
+                validated_med["buying_price"] = float(validated_med["buying_price"]) if validated_med["buying_price"] else 0.0
+            except (ValueError, TypeError):
+                validated_med["buying_price"] = 0.0
+            
+            try:
+                validated_med["selling_price"] = float(validated_med["selling_price"]) if validated_med["selling_price"] else 0.0
+            except (ValueError, TypeError):
+                validated_med["selling_price"] = 0.0
+            
+            # Set selling_price equal to mrp if not provided
+            if validated_med["selling_price"] == 0.0 and validated_med["mrp"] > 0.0:
+                validated_med["selling_price"] = validated_med["mrp"]
+            
+            return validated_med
+            
+        except Exception as e:
+            logger.error(f"Error validating supplier medicine: {str(e)}")
+            return self.default_supplier_medicine.copy()
+
+    def _validate_supplier(self, supplier_data: Dict[str, Any]) -> Dict[str, Any]:
+        """Validate supplier data"""
+        try:
+            # Apply supplier defaults
+            validated_supplier = {**self.default_supplier, **supplier_data}
+            
+            # Ensure all fields are strings
+            for field in ["name", "gst_number", "address_line1", "address_line2", "city", "state", "phone", "email", "contact_person_name", "contact_person_phone"]:
+                if not isinstance(validated_supplier[field], str):
+                    validated_supplier[field] = str(validated_supplier[field]) if validated_supplier[field] is not None else ""
+            
+            return validated_supplier
+            
+        except Exception as e:
+            logger.error(f"Error validating supplier: {str(e)}")
+            return self.default_supplier.copy()
+
     def create_medication_dto(self, med_data: Dict[str, Any]) -> MedicationDto:
         """Create MedicationDto from validated data"""
         try:
@@ -172,4 +305,25 @@ class ValidationService:
                 food=FoodDto(),
                 frequency=FrequencyDto(),
                 tapering=None
+            )
+
+    def create_supplier_bill_dto(self, bill_data: Dict[str, Any]) -> SupplierBillDto:
+        """Create SupplierBillDto from validated data"""
+        try:
+            supplier_dto = SupplierDto(**bill_data["supplier"])
+            medicines_dtos = [BuyFromSupplierMedicineDto(**med) for med in bill_data["medicines"]]
+            
+            return SupplierBillDto(
+                supplier=supplier_dto,
+                bill_number=bill_data["bill_number"],
+                medicines=medicines_dtos
+            )
+            
+        except Exception as e:
+            logger.error(f"Error creating SupplierBillDto: {str(e)}")
+            # Return default supplier bill DTO
+            return SupplierBillDto(
+                supplier=SupplierDto(name=""),
+                bill_number="",
+                medicines=[]
             ) 
