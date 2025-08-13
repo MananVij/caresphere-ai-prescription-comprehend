@@ -85,7 +85,8 @@ class ValidationService:
             "buying_price": 0.0,
             "selling_price": 0.0,
             "expiry_date": "",
-            "batch_number": ""
+            "batch_number": "",
+            "manufacturer": ""
         }
 
         self.default_supplier = {
@@ -247,6 +248,9 @@ class ValidationService:
             # Set selling_price equal to mrp if not provided
             if validated_med["selling_price"] == 0.0 and validated_med["mrp"] > 0.0:
                 validated_med["selling_price"] = validated_med["mrp"]
+            
+            validated_med["batch_number"] = str(validated_med["batch_number"]) if validated_med["batch_number"] else ""
+            validated_med["manufacturer"] = str(validated_med["manufacturer"]) if validated_med["manufacturer"] else ""
             
             return validated_med
             

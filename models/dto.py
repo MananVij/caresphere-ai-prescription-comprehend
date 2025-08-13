@@ -70,6 +70,7 @@ class BuyFromSupplierMedicineDto(BaseModel):
     selling_price: float
     expiry_date: str  # ISO date string YYYY-MM-DD
     batch_number: Optional[str] = None
+    manufacturer: Optional[str] = None
 
 class SupplierDto(BaseModel):
     name: str
